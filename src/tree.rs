@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, ops::Range};
 
 use crate::{LayerPosition, Node, NodeIndex, NodePosition, NodesRaw};
 
@@ -32,7 +32,7 @@ where
 /// [NodesRaw] `length` must never exceed `SIZE`, otherwise conversion panics.
 impl<T, const SIZE: usize> From<NodesRaw<T, Self>> for Tree<T, SIZE>
 where
-    Self: TreeParameters,
+    Self: TreeInterface,
     T: Debug + Clone,
 {
     fn from(value: NodesRaw<T, Self>) -> Self {
@@ -43,6 +43,15 @@ where
     }
 }
 
+/// Amount of stored elements in [Tree] with biggest row size of 128.  
+pub const TREE_128: usize = 128 * 128 * 128
+    + 64 * 64 * 64
+    + 32 * 32 * 32
+    + 16 * 16 * 16
+    + 8 * 8 * 8
+    + 4 * 4 * 4
+    + 2 * 2 * 2
+    + 1;
 /// Amount of stored elements in [Tree] with biggest row size of 64.  
 pub const TREE_64: usize =
     64 * 64 * 64 + 32 * 32 * 32 + 16 * 16 * 16 + 8 * 8 * 8 + 4 * 4 * 4 + 2 * 2 * 2 + 1;
@@ -61,10 +70,26 @@ pub const TREE_1: usize = 1;
 
 /// All [Tree] sizes for which are [TreeParameters] implemented.
 pub mod implemented_tree_sizes {
-    pub use super::{TREE_1, TREE_16, TREE_2, TREE_32, TREE_4, TREE_64, TREE_8};
+    pub use super::{TREE_1, TREE_128, TREE_16, TREE_2, TREE_32, TREE_4, TREE_64, TREE_8};
 }
 
-impl<T> TreeParameters for Tree<T, TREE_64> {
+impl<T> TreeInterface for Tree<T, TREE_128> {
+    const SIZE: usize = TREE_128;
+    const BIGGEST_ROW_SIZE: usize = 128;
+    const DEPTH: usize = 8;
+
+    #[inline(always)]
+    fn rows_sizes() -> Vec<usize> {
+        vec![128, 64, 32, 16, 8, 4, 2, 1]
+    }
+
+    #[inline(always)]
+    fn layers_sizes() -> Vec<usize> {
+        vec![2097152, 262144, 32768, 4096, 512, 64, 8, 1]
+    }
+}
+
+impl<T> TreeInterface for Tree<T, TREE_64> {
     const SIZE: usize = TREE_64;
     const BIGGEST_ROW_SIZE: usize = 64;
     const DEPTH: usize = 7;
@@ -80,7 +105,7 @@ impl<T> TreeParameters for Tree<T, TREE_64> {
     }
 }
 
-impl<T> TreeParameters for Tree<T, TREE_32> {
+impl<T> TreeInterface for Tree<T, TREE_32> {
     const SIZE: usize = TREE_32;
     const BIGGEST_ROW_SIZE: usize = 32;
     const DEPTH: usize = 6;
@@ -96,7 +121,7 @@ impl<T> TreeParameters for Tree<T, TREE_32> {
     }
 }
 
-impl<T> TreeParameters for Tree<T, TREE_16> {
+impl<T> TreeInterface for Tree<T, TREE_16> {
     const SIZE: usize = TREE_16;
     const BIGGEST_ROW_SIZE: usize = 16;
     const DEPTH: usize = 5;
@@ -112,7 +137,7 @@ impl<T> TreeParameters for Tree<T, TREE_16> {
     }
 }
 
-impl<T> TreeParameters for Tree<T, TREE_8> {
+impl<T> TreeInterface for Tree<T, TREE_8> {
     const SIZE: usize = TREE_8;
     const BIGGEST_ROW_SIZE: usize = 8;
     const DEPTH: usize = 4;
@@ -128,7 +153,7 @@ impl<T> TreeParameters for Tree<T, TREE_8> {
     }
 }
 
-impl<T> TreeParameters for Tree<T, TREE_4> {
+impl<T> TreeInterface for Tree<T, TREE_4> {
     const SIZE: usize = TREE_4;
     const BIGGEST_ROW_SIZE: usize = 4;
     const DEPTH: usize = 3;
@@ -144,7 +169,7 @@ impl<T> TreeParameters for Tree<T, TREE_4> {
     }
 }
 
-impl<T> TreeParameters for Tree<T, TREE_2> {
+impl<T> TreeInterface for Tree<T, TREE_2> {
     const SIZE: usize = TREE_2;
     const BIGGEST_ROW_SIZE: usize = 2;
     const DEPTH: usize = 2;
@@ -160,7 +185,7 @@ impl<T> TreeParameters for Tree<T, TREE_2> {
     }
 }
 
-impl<T> TreeParameters for Tree<T, TREE_1> {
+impl<T> TreeInterface for Tree<T, TREE_1> {
     const SIZE: usize = TREE_1;
     const BIGGEST_ROW_SIZE: usize = 1;
     const DEPTH: usize = 1;
@@ -178,7 +203,7 @@ impl<T> TreeParameters for Tree<T, TREE_1> {
 
 impl<T, const SIZE: usize> Tree<T, SIZE>
 where
-    Self: TreeParameters,
+    Self: TreeInterface,
     T: Debug,
 {
     /// Creates a new [`Tree`] with all [`nodes`](Node) set to [`Empty`](Node::Empty).
@@ -311,7 +336,7 @@ where
 
 // TODO: find better name? Already changed from config and better documentation
 /// Common tree parameters.
-pub trait TreeParameters {
+pub trait TreeInterface {
     /// [Tree] size, i.e. amount of elements that that tree will hold.
     const SIZE: usize;
     /// Size of the biggest row of tree.
@@ -320,7 +345,7 @@ pub trait TreeParameters {
     const CHUNK_SIZE: usize =
         Self::BIGGEST_ROW_SIZE * Self::BIGGEST_ROW_SIZE * Self::BIGGEST_ROW_SIZE;
     /// Amount of elements it the shallowest tree layer.
-    const FIRST_LAYER_SIZE: usize = Self::CHUNK_SIZE;
+    const SHALLOWEST_LAYER_SIZE: usize = Self::CHUNK_SIZE;
     /// Amount of layers tree has.
     const DEPTH: usize = tree_depth(Self::BIGGEST_ROW_SIZE);
     /// Index of deepest layer.
@@ -551,4 +576,14 @@ mod tree_tests {
         test_tree.set(NodeIndex::new(72), Node::Reduced);
         assert_eq!(tree, test_tree);
     }
+}
+
+#[cfg(test)]
+mod tree_interface_tests {
+    use crate::{
+        implemented_tree_sizes::{
+            TREE_1, TREE_128, TREE_16, TREE_2, TREE_32, TREE_4, TREE_64, TREE_8,
+        },
+        NodeIndex, Tree, TreeInterface,
+    };
 }

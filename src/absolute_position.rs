@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::{Add, Index, IndexMut, Sub};
 
-use crate::{LayerIndex, LayerPosition, TreeParameters};
+use crate::{LayerIndex, LayerPosition, TreeInterface};
 
 /// Absolute index of [`Node`](crate::Node) inside a [`Tree`](crate::Tree).
 ///
@@ -60,7 +60,7 @@ impl<T> PartialOrd<usize> for NodeIndex<T> {
 /// [`Display`] shows the biggest row of associated [`Tree`](crate::Tree) and `index`.
 impl<T> Display for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeIndex::<{}>( {} )", T::BIGGEST_ROW_SIZE, self.index)
@@ -69,7 +69,7 @@ where
 
 impl<T> From<NodePosition<T>> for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: NodePosition<T>) -> Self {
         Self::from(LayerPosition::from(value))
@@ -78,7 +78,7 @@ where
 
 impl<T> From<LayerPosition<T>> for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: LayerPosition<T>) -> Self {
         let (mut index, depth) = LayerIndex::from(value).get_raw();
@@ -93,7 +93,7 @@ where
 
 impl<T> From<LayerIndex<T>> for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: LayerIndex<T>) -> Self {
         Self::from(LayerPosition::from(value))
@@ -102,7 +102,7 @@ where
 
 impl<T, U> Index<NodeIndex<T>> for Vec<U>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     type Output = U;
 
@@ -113,7 +113,7 @@ where
 
 impl<T, U> IndexMut<NodeIndex<T>> for Vec<U>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn index_mut(&mut self, index: NodeIndex<T>) -> &mut Self::Output {
         &mut self[index.index]
@@ -122,7 +122,7 @@ where
 
 impl<T, U, const N: usize> Index<NodeIndex<T>> for [U; N]
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     type Output = U;
 
@@ -133,7 +133,7 @@ where
 
 impl<T, U, const N: usize> IndexMut<NodeIndex<T>> for [U; N]
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn index_mut(&mut self, index: NodeIndex<T>) -> &mut Self::Output {
         &mut self[index.index]
@@ -142,7 +142,7 @@ where
 
 impl<T> Add for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     type Output = Self;
 
@@ -155,7 +155,7 @@ where
 
 impl<T> Add<usize> for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     type Output = Self;
 
@@ -168,7 +168,7 @@ where
 
 impl<T> Sub for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     type Output = Self;
 
@@ -181,7 +181,7 @@ where
 
 impl<T> Sub<usize> for NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     type Output = Self;
 
@@ -200,7 +200,7 @@ impl<T> From<NodeIndex<T>> for usize {
 
 impl<T> NodeIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     /// Creates a new [NodeIndex].
     ///
@@ -307,7 +307,7 @@ impl<T> Copy for NodePosition<T> {}
 /// [`Display`] shows the biggest row of associated [`Tree`](crate::Tree), `position` and `depth`.
 impl<T> Display for NodePosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -331,7 +331,7 @@ impl<T> PartialEq for NodePosition<T> {
 
 impl<T> From<NodeIndex<T>> for NodePosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: NodeIndex<T>) -> Self {
         LayerPosition::from(value).into()
@@ -340,7 +340,7 @@ where
 
 impl<T> From<LayerPosition<T>> for NodePosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: LayerPosition<T>) -> Self {
         let multiplier = T::BIGGEST_ROW_SIZE / T::row_size(value.depth);
@@ -355,7 +355,7 @@ where
 
 impl<T> From<LayerIndex<T>> for NodePosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: LayerIndex<T>) -> Self {
         LayerPosition::from(value).into()
@@ -364,7 +364,7 @@ where
 
 impl<T> NodePosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     /// Creates a new [NodePosition].
     ///

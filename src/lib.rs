@@ -10,4 +10,4 @@ mod tree;
 pub use absolute_position::{NodeIndex, NodePosition};
 pub use layer_position::{LayerIndex, LayerPosition};
 pub use node::{Node, NodesRaw};
-pub use tree::{implemented_tree_sizes, Tree, TreeParameters};
+pub use tree::{implemented_tree_sizes, Tree, TreeInterface};

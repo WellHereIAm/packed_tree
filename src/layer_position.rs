@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 
-use crate::{NodeIndex, NodePosition, TreeParameters};
+use crate::{NodeIndex, NodePosition, TreeInterface};
 
 /// Index of [`Node`](crate::Node) in specific layer.
 ///
@@ -35,7 +35,7 @@ impl<T> Clone for LayerIndex<T> {
 /// [`Display`] shows the biggest row of associated [`Tree`](crate::Tree), `index` and `depth`.
 impl<T> Display for LayerIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -60,7 +60,7 @@ impl<T> PartialEq for LayerIndex<T> {
 
 impl<T> From<NodeIndex<T>> for LayerIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: NodeIndex<T>) -> Self {
         LayerPosition::from(value).into()
@@ -69,7 +69,7 @@ where
 
 impl<T> From<NodePosition<T>> for LayerIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: NodePosition<T>) -> Self {
         LayerPosition::from(value).into()
@@ -78,7 +78,7 @@ where
 
 impl<T> From<LayerPosition<T>> for LayerIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: LayerPosition<T>) -> Self {
         let row_size = T::row_size(value.depth);
@@ -89,7 +89,7 @@ where
 
 impl<T> LayerIndex<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     /// Creates a new [LayerIndex].
     ///
@@ -172,7 +172,7 @@ impl<T> PartialEq for LayerPosition<T> {
 /// [`Display`] shows the biggest row of associated [`Tree`](crate::Tree), `position` and `depth`.
 impl<T> Display for LayerPosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -189,7 +189,7 @@ where
 
 impl<T> From<NodeIndex<T>> for LayerPosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: NodeIndex<T>) -> Self {
         let depth = value.depth();
@@ -205,7 +205,7 @@ where
 
 impl<T> From<NodePosition<T>> for LayerPosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: NodePosition<T>) -> Self {
         let row_size = T::row_size(value.depth);
@@ -220,7 +220,7 @@ where
 
 impl<T> From<LayerIndex<T>> for LayerPosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     fn from(value: LayerIndex<T>) -> Self {
         let row_size = T::row_size(value.depth);
@@ -236,7 +236,7 @@ where
 
 impl<T> LayerPosition<T>
 where
-    T: TreeParameters,
+    T: TreeInterface,
 {
     /// Creates a new [LayerPosition].
     ///

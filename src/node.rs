@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{NodeIndex, TreeParameters};
+use crate::{NodeIndex, TreeInterface};
 
 /// Data inside a [`Tree`](crate::Tree).
 #[derive(Debug, Clone, PartialEq)]
@@ -23,7 +23,7 @@ pub struct NodesRaw<T, U> {
 /// Length of `vec` needs to same as [tree size](TreeParameters::SIZE).
 impl<T, U> From<Vec<Node<T>>> for NodesRaw<T, U>
 where
-    U: TreeParameters,
+    U: TreeInterface,
 {
     fn from(value: Vec<Node<T>>) -> Self {
         debug_assert!(value.len() <= U::SIZE);
@@ -36,7 +36,7 @@ where
 
 impl<T, U> From<NodesRaw<T, U>> for Vec<Node<T>>
 where
-    U: TreeParameters,
+    U: TreeInterface,
 {
     fn from(value: NodesRaw<T, U>) -> Self {
         value.nodes
@@ -54,7 +54,7 @@ impl<T, U> Default for NodesRaw<T, U> {
 
 impl<T, U> NodesRaw<T, U>
 where
-    U: TreeParameters,
+    U: TreeInterface,
 {
     /// Creates a new empty [NodesRaw] struct.
     pub fn new() -> Self {
