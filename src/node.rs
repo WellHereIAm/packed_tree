@@ -1,0 +1,97 @@
+use std::marker::PhantomData;
+
+use crate::{NodeIndex, TreeParameters};
+
+/// Data inside a [`Tree`](crate::Tree).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Node<T> {
+    /// Node which by combination rules became filled, i.e. it is expected that most of the children are filled as well.
+    Filled(T),
+    /// Node which children are not all empty, but this became empty by combination rules.
+    Reduced,
+    /// Marks node which all children are empty as well.
+    Empty,
+}
+
+/// Helper struct to ease building [`Tree`] from data.
+#[derive(Debug)]
+pub struct NodesRaw<T, U> {
+    nodes: Vec<Node<T>>,
+    boo: PhantomData<U>,
+}
+
+/// Length of `vec` needs to same as [tree size](TreeParameters::SIZE).
+impl<T, U> From<Vec<Node<T>>> for NodesRaw<T, U>
+where
+    U: TreeParameters,
+{
+    fn from(value: Vec<Node<T>>) -> Self {
+        debug_assert!(value.len() <= U::SIZE);
+        Self {
+            nodes: value,
+            boo: PhantomData,
+        }
+    }
+}
+
+impl<T, U> From<NodesRaw<T, U>> for Vec<Node<T>>
+where
+    U: TreeParameters,
+{
+    fn from(value: NodesRaw<T, U>) -> Self {
+        value.nodes
+    }
+}
+
+impl<T, U> Default for NodesRaw<T, U> {
+    fn default() -> Self {
+        Self {
+            nodes: Default::default(),
+            boo: Default::default(),
+        }
+    }
+}
+
+impl<T, U> NodesRaw<T, U>
+where
+    U: TreeParameters,
+{
+    /// Creates a new empty [NodesRaw] struct.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Appends a `node` to the back of a collection.
+    pub fn push(&mut self, node: Node<T>) {
+        debug_assert!(self.nodes.len() < U::SIZE);
+        self.nodes.push(node)
+    }
+
+    /// Returns a reference to stored `nodes`.
+    pub fn get(&self) -> &Vec<Node<T>> {
+        &self.nodes
+    }
+
+    /// Returns `true` if [len](NodesRaw::len) is equal to [tree size](TreeParameters::SIZE).
+    pub fn is_filled(&self) -> bool {
+        self.nodes.len() == U::SIZE
+    }
+
+    /// Returns the number of `nodes` in the collection.
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Returns `true` if number of `nodes` inside is equal to 0.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Sets the node on `position` to provided [`node`](Node)
+    /// and returns a [`Node`] previously stored on  `position`.
+    pub fn set(&mut self, index: NodeIndex<U>, mut value: Node<T>) -> Node<T> {
+        debug_assert!(index < self.len());
+        std::mem::swap(&mut self.nodes[index], &mut value);
+        value
+    }
+}
