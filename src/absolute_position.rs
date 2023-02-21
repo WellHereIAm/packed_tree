@@ -1,8 +1,140 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::ops::{Add, Index, IndexMut, Range, Sub};
 
-use crate::{LayerIndex, LayerPosition, TreeInterface};
+use crate::{CoordinateError, LayerIndex, LayerPosition, TreeInterface};
+
+/// `Depth` of [`tree`](crate::Tree) layer.
+///
+/// Tree layers are ordered from the shallowest to the deepest
+/// and the shallowest is the biggest in size with every next
+/// layer having `row size` half of the previous.
+///
+/// This struct is not used in coordinate structs ([NodeIndex], [NodePosition],
+/// [LayerIndex], [LayerPosition]) to store depth, those check that depth is correct
+/// by itself, but mainly to [`index`](std::ops::Index) into [`Tree`](crate::Tree)
+/// by layer.
+///
+/// This structure always expects to have valid data inside and in debug panics if that is not true.
+#[derive(Debug)]
+pub struct Depth<T> {
+    depth: usize,
+    /// Associated [`Tree`](crate::Tree).
+    boo: PhantomData<T>,
+}
+
+impl<T> TryFrom<usize> for Depth<T>
+where
+    T: TreeInterface,
+{
+    type Error = CoordinateError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        if !Self::is_valid_depth(value) {
+            return Err(CoordinateError::Depth);
+        }
+
+        Ok(Self::new(value))
+    }
+}
+
+impl<T> From<Depth<T>> for usize
+where
+    T: TreeInterface,
+{
+    fn from(value: Depth<T>) -> Self {
+        value.raw()
+    }
+}
+
+/// [`Clone`] is implemented manually, so there is no requirement on `T` to also implement [`Clone`].
+impl<T> Clone for Depth<T> {
+    fn clone(&self) -> Self {
+        Self {
+            depth: self.depth,
+            boo: PhantomData,
+        }
+    }
+}
+
+/// [`Copy`] is implemented manually, so there is no requirement on `T` to also implement [`Clone`].
+impl<T> Copy for Depth<T> {}
+
+/// [`PartialEq`] is implemented manually, so there is no requirement on `T` to also implement [`PartialEq`].
+impl<T> PartialEq for Depth<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.depth == other.depth
+    }
+}
+
+/// [`PartialEq`] is implemented manually, so there is no requirement on `T` to also implement [`PartialEq`]
+/// and comparison to [`usize`] is possible.
+impl<T> PartialEq<usize> for Depth<T> {
+    fn eq(&self, other: &usize) -> bool {
+        self.depth == *other
+    }
+}
+
+/// [`PartialOrd`] is implemented manually, so there is no requirement on `T` to also implement [`PartialOrd`].
+impl<T> PartialOrd for Depth<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.depth.cmp(&other.depth))
+    }
+}
+
+/// [`PartialOrd`] is implemented manually, so there is no requirement on `T` to also implement [`PartialOrd`]
+/// and comparison to [`usize`] is possible.
+impl<T> PartialOrd<usize> for Depth<T> {
+    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+        Some(self.depth.cmp(other))
+    }
+}
+
+/// [`Display`] shows the biggest row of associated [`Tree`](crate::Tree) and `depth`.
+impl<T> Display for Depth<T>
+where
+    T: TreeInterface,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Depth::<{}>( {} )", T::BIGGEST_ROW_SIZE, self.depth)
+    }
+}
+
+impl<T> Depth<T>
+where
+    T: TreeInterface,
+{
+    /// Creates a new [Depth].
+    ///
+    /// Validity of provided `depth` is checked only in debug mode.
+    pub fn new(depth: usize) -> Self {
+        debug_assert!(Self::is_valid_depth(depth));
+        Self {
+            depth,
+            boo: PhantomData,
+        }
+    }
+
+    /// Return `true` if `depth` is less or equal to
+    /// [`MAX_DEPTH_INDEX`](TreeInterface::MAX_DEPTH_INDEX).
+    pub fn is_valid_depth(depth: usize) -> bool {
+        depth <= T::MAX_DEPTH_INDEX
+    }
+
+    /// Returs `depth` as [`usize`].
+    pub fn raw(self) -> usize {
+        self.depth
+    }
+
+    /// Replaces the depth inside with provided `depth`
+    /// and returns depth previously stored.
+    pub fn set(&mut self, depth: usize) -> usize {
+        debug_assert!(Self::is_valid_depth(depth));
+        let mut new = Self::new(depth);
+        std::mem::swap(self, &mut new);
+        new.into()
+    }
+}
 
 /// Absolute index of [`Node`](crate::Node) inside a [`Tree`](crate::Tree).
 ///
@@ -215,10 +347,9 @@ where
     }
 
     /// Creates a new [NodeIndex] if provided `index` is valid, otherwise [`Err`] is returned.
-    #[allow(clippy::result_unit_err)]
-    pub fn new_checked(index: usize) -> Result<Self, ()> {
+    pub fn new_checked(index: usize) -> Result<Self, CoordinateError> {
         if !Self::is_valid_index(index) {
-            return Err(());
+            return Err(CoordinateError::Index);
         }
         Ok(Self {
             index,
@@ -343,7 +474,8 @@ where
     T: TreeInterface,
 {
     fn from(value: LayerPosition<T>) -> Self {
-        let multiplier = T::BIGGEST_ROW_SIZE / T::row_size(value.depth);
+        // Depth will be always valid, so this never panics in release.
+        let multiplier = T::BIGGEST_ROW_SIZE / T::row_size(Depth::new(value.depth));
 
         let x = value.x * multiplier;
         let y = value.y * multiplier;
@@ -402,9 +534,12 @@ where
         Self::is_valid_position(self.x, self.y, self.z, self.depth)
     }
 
-    /// Returns [NodePosition] of child in bottom front left corner of parrent node
-    /// if exists, otherwise [`None`] is returned.
-    pub fn child_position(mut self) -> Option<Self> {
+    /// Returns [NodePosition] of `self` with depth lowered by 1,
+    /// if `depth` is not equal to 0, otherwise [`None`] is returned.
+    ///
+    /// Returned [NodePosition] is an anchor to this children on current position,
+    /// i.e. position of child in bottom front left corner of parrent node
+    pub fn children_anchor(mut self) -> Option<Self> {
         if self.depth == 0 {
             return None;
         }
@@ -598,35 +733,35 @@ pub(crate) mod node_position_tests {
     #[test]
     fn child_position() {
         let pos = TestNodePosition::new(0, 0, 0, 0);
-        assert_eq!(pos.child_position(), None);
+        assert_eq!(pos.children_anchor(), None);
 
         let pos = TestNodePosition::new(1, 0, 0, 0);
-        assert_eq!(pos.child_position(), None);
+        assert_eq!(pos.children_anchor(), None);
 
         let pos = TestNodePosition::new(3, 3, 3, 0);
-        assert_eq!(pos.child_position(), None);
+        assert_eq!(pos.children_anchor(), None);
 
         let pos = TestNodePosition::new(0, 0, 0, 1);
         assert_eq!(
-            pos.child_position(),
+            pos.children_anchor(),
             Some(TestNodePosition::new(0, 0, 0, 0))
         );
 
         let pos = TestNodePosition::new(2, 0, 0, 1);
         assert_eq!(
-            pos.child_position(),
+            pos.children_anchor(),
             Some(TestNodePosition::new(2, 0, 0, 0))
         );
 
         let pos = TestNodePosition::new(2, 2, 2, 1);
         assert_eq!(
-            pos.child_position(),
+            pos.children_anchor(),
             Some(TestNodePosition::new(2, 2, 2, 0))
         );
 
         let pos = TestNodePosition::new(0, 0, 0, 2);
         assert_eq!(
-            pos.child_position(),
+            pos.children_anchor(),
             Some(TestNodePosition::new(0, 0, 0, 1))
         );
     }

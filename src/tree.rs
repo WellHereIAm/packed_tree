@@ -1,12 +1,11 @@
 use std::{
     fmt::Debug,
     ops::{
-        Bound, Index, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
-        RangeToInclusive,
+        Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
     },
 };
 
-use crate::{LayerPosition, Node, NodeIndex, NodePosition, NodesRaw};
+use crate::{absolute_position::Depth, LayerPosition, Node, NodeIndex, NodePosition, NodesRaw};
 
 /// Stores data in **non**-sparse octree.
 ///
@@ -35,16 +34,21 @@ where
 
 /// Prefered method of constructing a new [Tree] from [`nodes`](NodesRaw).
 ///
-/// [NodesRaw] `length` must never exceed `SIZE`, otherwise conversion panics.
+/// [`NodesRaw`] guarantee that amount of [`nodes`](Node) inside will not
+/// exceed associated [`Tree`] size, but if that would have happen trimms
+/// any nodes beyond tree size.
 impl<T, const SIZE: usize> From<NodesRaw<T, Self>> for Tree<T, SIZE>
 where
     Self: TreeInterface,
     T: Debug + Clone,
 {
     fn from(value: NodesRaw<T, Self>) -> Self {
-        debug_assert!(value.len() <= Self::SIZE);
         let mut vec: Vec<Node<T>> = value.into();
-        vec.extend(vec![Node::Empty; SIZE - vec.len()]);
+        match vec.len() {
+            len if len > SIZE => vec = vec[0..SIZE].to_vec(),
+            len => vec.extend(vec![Node::Empty; SIZE - len]),
+        }
+
         Self::from_nodes(vec.try_into().expect("Invalid length."))
     }
 }
@@ -77,6 +81,10 @@ pub const TREE_1: usize = 1;
 /// All [Tree] sizes for which are [TreeParameters] implemented.
 pub mod implemented_tree_sizes {
     pub use super::{TREE_1, TREE_128, TREE_16, TREE_2, TREE_32, TREE_4, TREE_64, TREE_8};
+    /// All [Tree] sizes for which are [TreeParameters] implemented collected into an array.
+    pub const SIZES: [usize; 8] = [
+        TREE_1, TREE_2, TREE_4, TREE_8, TREE_16, TREE_32, TREE_64, TREE_128,
+    ];
 }
 
 impl<T> TreeInterface for Tree<T, TREE_128> {
@@ -229,7 +237,7 @@ macro_rules! impl_From_for_Tree {
             Node<T>: Clone,
         {
             fn from(value: Tree<T, $m>) -> Self {
-                let start = Tree::<T, $m>::layer_size(0);
+                let start = Tree::<T, $m>::layer_size(Depth::new(0));
                 let end = Tree::<T, $m>::SIZE;
                 Tree {
                     stored: value.stored[start..end].to_vec().try_into().unwrap(),
@@ -401,6 +409,27 @@ where
     }
 }
 
+/// Indexing by [`Depth`] returns all nodes in that layer.
+impl<T, const SIZE: usize> Index<Depth<Self>> for Tree<T, SIZE>
+where
+    Self: TreeInterface + Index<RangeInclusive<NodeIndex<Self>>, Output = [Node<T>]>,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, index: Depth<Self>) -> &Self::Output {
+        &self[Self::layer_range(index)]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<Depth<Self>> for Tree<T, SIZE>
+where
+    Self: TreeInterface + IndexMut<RangeInclusive<NodeIndex<Self>>, Output = [Node<T>]>,
+{
+    fn index_mut(&mut self, index: Depth<Self>) -> &mut Self::Output {
+        &mut self[Self::layer_range(index)]
+    }
+}
+
 impl<T, const SIZE: usize> Tree<T, SIZE>
 where
     Self: TreeInterface,
@@ -442,11 +471,7 @@ where
 
         for position in iter {
             if let Some(children) = self.children(position) {
-                let children_data = children
-                    .into_iter()
-                    .map(|index| self.get(index))
-                    .collect::<Vec<&Node<T>>>();
-                self.set(position, combine_rule(&children_data));
+                self.set(position, combine_rule(&children));
             }
         }
     }
@@ -476,7 +501,7 @@ where
     /// Returns an [`index`](NodeIndex) of parrent of [`Node`] on `position`
     /// if such node has a parrent, i.e. does not have `depth` equal to [TreeParameters::MAX_DEPTH_INDEX],
     /// in that case [`None`] is returned.
-    pub fn parrent<P>(&self, position: P) -> Option<NodeIndex<Self>>
+    pub fn parrent_index<P>(&self, position: P) -> Option<NodeIndex<Self>>
     where
         P: Into<NodeIndex<Self>>,
     {
@@ -484,27 +509,55 @@ where
         Some(LayerPosition::from(index).parrent_position()?.into())
     }
 
-    /// Returns an [`indexes`](NodeIndex) of children of [`Node`] on `position`
+    /// Returns a reference to a parrent [`Node`] on `position`
+    /// if such node has a parrent, i.e. does not have `depth` equal to [TreeParameters::MAX_DEPTH_INDEX],
+    /// in that case [`None`] is returned.
+    pub fn parrent<P>(&self, position: P) -> Option<&Node<T>>
+    where
+        P: Into<NodeIndex<Self>>,
+    {
+        let Some(index) = self.parrent_index(position) else {
+            return None;
+        };
+
+        Some(self.get(index))
+    }
+
+    /// Returns mutable reference to a parrent [`Node`] on `position`
+    /// if such node has a parrent, i.e. does not have `depth` equal to [TreeParameters::MAX_DEPTH_INDEX],
+    /// in that case [`None`] is returned.
+    pub fn parrent_mut<P>(&mut self, position: P) -> Option<&Node<T>>
+    where
+        P: Into<NodeIndex<Self>>,
+    {
+        let Some(index) = self.parrent_index(position) else {
+            return None;
+        };
+
+        Some(self.get_mut(index))
+    }
+
+    /// Returns an [`indices`](NodeIndex) of children of [`Node`] on `position`
     /// if such node has a children, i.e. does not have `depth` equal to zero,
     /// in which case [`None`] is returned.
     ///
     /// Returned indexes are ordered from front to back first, then bottom to top
-    /// and lastly from left to right, i.e. if first child index is (0, 0, 0) and row size is 4
+    /// and lastly from left to right, i.e. if first child index is `(0, 0, 0)` and row size is `4`
     /// the children positions will be following series:
     ///
     /// `(0, 0, 0)`, `(1, 0, 0)`, `(0, 1, 0)`, `(1, 1, 0)`, `(0, 0, 1)`, `(1, 0, 1)`, `(0, 1, 1)`, `(1, 1, 1)`
     ///
     // TODO: Maybe replace [NodeIndex; 8] with some datastructure.
-    pub fn children<P>(&self, position: P) -> Option<[NodeIndex<Self>; 8]>
+    pub fn children_indices<P>(&self, position: P) -> Option<[NodeIndex<Self>; 8]>
     where
         P: Into<NodeIndex<Self>>,
     {
         let parrent_index: NodeIndex<Self> = position.into();
         // Position of an child in bottom front left corner of parrent node.
         let children_anchor: NodeIndex<Self> =
-            NodePosition::from(parrent_index).child_position()?.into();
+            NodePosition::from(parrent_index).children_anchor()?.into();
         // Row size of childrens layer.
-        let row_size = Self::row_size(children_anchor.depth());
+        let row_size = Self::row_size(Depth::new(children_anchor.depth()));
 
         let children: [NodeIndex<Self>; 8] = (0..2)
             .flat_map(|z| {
@@ -518,6 +571,26 @@ where
             .try_into()
             .unwrap(); // Iterator bounds ensure that no panic will occur on this unwrap.
 
+        Some(children)
+    }
+
+    /// Returns references to child nodes to a node on `position`,
+    /// if `depth` of `position` is not equal to `0`.
+    ///
+    /// More about structure of returned children on [Tree::children_indices].
+    pub fn children<P>(&self, position: P) -> Option<[&Node<T>; 8]>
+    where
+        P: Into<NodeIndex<Self>>,
+    {
+        let Some(indices) = self.children_indices(position) else {
+            return None;
+        };
+        let children: [&Node<T>; 8] = indices
+            .into_iter()
+            .map(|index| self.get(index))
+            .collect::<Vec<&Node<T>>>()
+            .try_into()
+            .unwrap();
         Some(children)
     }
 
@@ -555,9 +628,11 @@ pub trait TreeInterface {
     ///
     /// Expects in-bounds `depth`.
     #[inline(always)]
-    fn row_size(depth: usize) -> usize {
-        debug_assert!(depth <= Self::MAX_DEPTH_INDEX);
-        Self::rows_sizes()[depth]
+    fn row_size(depth: Depth<Self>) -> usize
+    where
+        Self: Sized,
+    {
+        Self::rows_sizes()[depth.raw()]
     }
 
     /// Returns row sizes of tree, from the shallowest to the deepest.
@@ -589,31 +664,34 @@ pub trait TreeInterface {
     }
 
     /// Returns size of layer in specified `depth`.
-    fn layer_size(depth: usize) -> usize {
-        Self::layers_sizes()[depth]
+    fn layer_size(depth: Depth<Self>) -> usize
+    where
+        Self: Sized,
+    {
+        Self::layers_sizes()[depth.raw()]
     }
 
     /// Returns all ranges of indexes belogning to each layer of associated [`Tree`].
-    fn layers_ranges() -> Vec<Range<NodeIndex<Self>>>
+    fn layers_ranges() -> Vec<RangeInclusive<NodeIndex<Self>>>
     where
         Self: Sized,
     {
         Self::layers_sizes()
             .into_iter()
             .scan(0, |state: &mut usize, element| {
-                let previous: usize = (*state).saturating_sub(1);
+                let previous: usize = *state;
                 *state += element;
-                Some(NodeIndex::new(previous)..NodeIndex::new((*state).saturating_sub(1)))
+                Some(NodeIndex::new(previous)..=NodeIndex::new((*state).saturating_sub(1)))
             })
-            .collect::<Vec<Range<NodeIndex<Self>>>>()
+            .collect::<Vec<RangeInclusive<NodeIndex<Self>>>>()
     }
 
     /// Returns a range of indexes belonging to a layer in specified `depth`.
-    fn layer_range(depth: usize) -> Range<NodeIndex<Self>>
+    fn layer_range(depth: Depth<Self>) -> RangeInclusive<NodeIndex<Self>>
     where
         Self: Sized,
     {
-        Self::layers_ranges()[depth].clone()
+        Self::layers_ranges()[depth.raw()].clone()
     }
 }
 
@@ -635,7 +713,7 @@ mod tree_tests {
         implemented_tree_sizes::{
             TREE_1, TREE_128, TREE_16, TREE_2, TREE_32, TREE_4, TREE_64, TREE_8,
         },
-        Node, NodeIndex, NodesRaw,
+        Depth, LayerIndex, Node, NodeIndex, NodesRaw, TreeInterface,
     };
 
     use super::Tree;
@@ -657,17 +735,30 @@ mod tree_tests {
 
     #[test]
     fn from_nodes_raw() {
-        let nodes = nodes_raw(0);
-        drop(TestTree::from(nodes));
-        let nodes = nodes_raw(1);
-        drop(TestTree::from(nodes));
-        let nodes = nodes_raw(64);
-        drop(TestTree::from(nodes));
-        let nodes = nodes_raw(73);
-        drop(TestTree::from(nodes));
-
-        std::panic::catch_unwind(|| TestTree::from(NodesRaw::from(vec![Node::Empty; 74])))
-            .unwrap_err();
+        assert_eq!(
+            TestTree::new(),
+            TestTree::from(NodesRaw::from(vec![Node::Empty; 0]))
+        );
+        assert_eq!(
+            TestTree::new(),
+            TestTree::from(NodesRaw::from(vec![Node::Empty; 1]))
+        );
+        assert_eq!(
+            TestTree::new(),
+            TestTree::from(NodesRaw::from(vec![Node::Empty; 64]))
+        );
+        assert_eq!(
+            TestTree::new(),
+            TestTree::from(NodesRaw::from(vec![Node::Empty; 73]))
+        );
+        assert_eq!(
+            TestTree::new(),
+            TestTree::from(NodesRaw::from(vec![Node::Empty; 74]))
+        );
+        assert_eq!(
+            TestTree::new(),
+            TestTree::from(NodesRaw::from(vec![Node::Empty; 95]))
+        );
     }
 
     #[test]
@@ -766,11 +857,11 @@ mod tree_tests {
     fn children() {
         let nodes = nodes_raw(73);
         let tree = TestTree::from(nodes);
-        assert_eq!(tree.children(NodeIndex::new(0)), None);
-        assert_eq!(tree.children(NodeIndex::new(63)), None);
+        assert_eq!(tree.children_indices(NodeIndex::new(0)), None);
+        assert_eq!(tree.children_indices(NodeIndex::new(63)), None);
 
         assert_eq!(
-            tree.children(NodeIndex::new(72)),
+            tree.children_indices(NodeIndex::new(72)),
             Some([
                 NodeIndex::new(64),
                 NodeIndex::new(65),
@@ -784,7 +875,7 @@ mod tree_tests {
         );
 
         assert_eq!(
-            tree.children(NodeIndex::new(71)),
+            tree.children_indices(NodeIndex::new(71)),
             Some([
                 NodeIndex::new(42),
                 NodeIndex::new(43),
@@ -798,7 +889,7 @@ mod tree_tests {
         );
 
         assert_eq!(
-            tree.children(NodeIndex::new(64)),
+            tree.children_indices(NodeIndex::new(64)),
             Some([
                 NodeIndex::new(0),
                 NodeIndex::new(1),
@@ -812,7 +903,7 @@ mod tree_tests {
         );
 
         assert_eq!(
-            tree.children(NodeIndex::new(65)),
+            tree.children_indices(NodeIndex::new(65)),
             Some([
                 NodeIndex::new(2),
                 NodeIndex::new(3),
@@ -831,14 +922,35 @@ mod tree_tests {
         let nodes = nodes_raw(73);
         let tree = TestTree::from(nodes);
 
-        assert_eq!(tree.parrent(NodeIndex::new(0)), Some(NodeIndex::new(64)));
-        assert_eq!(tree.parrent(NodeIndex::new(1)), Some(NodeIndex::new(64)));
-        assert_eq!(tree.parrent(NodeIndex::new(2)), Some(NodeIndex::new(65)));
-        assert_eq!(tree.parrent(NodeIndex::new(63)), Some(NodeIndex::new(71)));
-        assert_eq!(tree.parrent(NodeIndex::new(64)), Some(NodeIndex::new(72)));
-        assert_eq!(tree.parrent(NodeIndex::new(65)), Some(NodeIndex::new(72)));
-        assert_eq!(tree.parrent(NodeIndex::new(71)), Some(NodeIndex::new(72)));
-        assert_eq!(tree.parrent(NodeIndex::new(72)), None);
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(0)),
+            Some(NodeIndex::new(64))
+        );
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(1)),
+            Some(NodeIndex::new(64))
+        );
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(2)),
+            Some(NodeIndex::new(65))
+        );
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(63)),
+            Some(NodeIndex::new(71))
+        );
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(64)),
+            Some(NodeIndex::new(72))
+        );
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(65)),
+            Some(NodeIndex::new(72))
+        );
+        assert_eq!(
+            tree.parrent_index(NodeIndex::new(71)),
+            Some(NodeIndex::new(72))
+        );
+        assert_eq!(tree.parrent_index(NodeIndex::new(72)), None);
     }
 
     #[test]
@@ -901,6 +1013,84 @@ mod tree_tests {
         test_tree.set(NodeIndex::new(72), Node::Reduced);
         assert_eq!(tree, test_tree);
     }
+
+    #[test]
+    fn index_by_depth() {
+        const FILLED: Node<()> = Node::Filled(());
+        const EMPTY: Node<()> = Node::Empty;
+
+        let mut tree = Tree::<(), TREE_1>::new();
+        for depth in 0..Tree::<(), TREE_1>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_1>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_2>::new();
+        for depth in 0..Tree::<(), TREE_2>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_2>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_4>::new();
+        for depth in 0..Tree::<(), TREE_4>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_4>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_8>::new();
+        for depth in 0..Tree::<(), TREE_8>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_8>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_16>::new();
+        for depth in 0..Tree::<(), TREE_16>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_16>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_32>::new();
+        for depth in 0..Tree::<(), TREE_32>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_32>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_64>::new();
+        for depth in 0..Tree::<(), TREE_64>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_64>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+
+        let mut tree = Tree::<(), TREE_128>::new();
+        for depth in 0..Tree::<(), TREE_128>::DEPTH {
+            let depth = Depth::new(depth);
+            tree.set(LayerIndex::new(0, depth.raw()), FILLED);
+            let mut test = vec![EMPTY; Tree::<(), TREE_128>::layer_size(depth)];
+            test[0] = FILLED;
+            assert_eq!(&tree[depth], &test);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -914,21 +1104,33 @@ mod tree_interface_tests {
 
     #[test]
     fn layer_ranges() {
-        println!("{:?}", Tree::<usize, TREE_128>::layers_sizes());
-        for range in Tree::<usize, TREE_128>::layers_ranges() {
-            println!("{}..{}", range.start, range.end);
-        }
-        // panic!();
+        // I can not think of way of automating it, and using same algorithm
+        // would be pointless.
+        let range = Tree::<usize, TREE_1>::layers_ranges();
+        assert_eq!(range[0], NodeIndex::new(0)..=NodeIndex::new(0));
 
-        let mut vec = [
-            NodeIndex::<Tree<(), TREE_4>>::new(1),
-            NodeIndex::<Tree<(), TREE_4>>::new(1),
-            NodeIndex::<Tree<(), TREE_4>>::new(1),
-            NodeIndex::<Tree<(), TREE_4>>::new(1),
-        ];
-        let default = [NodeIndex::<Tree<(), TREE_4>>::new(0); 2];
-        vec[0..2].clone_from_slice(&default);
-        println!("{vec:?}");
-        panic!()
+        let range = Tree::<usize, TREE_2>::layers_ranges();
+        assert_eq!(range[0], NodeIndex::new(0)..=NodeIndex::new(7));
+        assert_eq!(range[1], NodeIndex::new(8)..=NodeIndex::new(8));
+
+        let range = Tree::<usize, TREE_4>::layers_ranges();
+        assert_eq!(range[0], NodeIndex::new(0)..=NodeIndex::new(63));
+        assert_eq!(range[1], NodeIndex::new(64)..=NodeIndex::new(71));
+        assert_eq!(range[2], NodeIndex::new(72)..=NodeIndex::new(72));
+
+        let range = Tree::<usize, TREE_8>::layers_ranges();
+        assert_eq!(range[0], NodeIndex::new(0)..=NodeIndex::new(511));
+        assert_eq!(range[1], NodeIndex::new(512)..=NodeIndex::new(575));
+        assert_eq!(range[2], NodeIndex::new(576)..=NodeIndex::new(583));
+        assert_eq!(range[3], NodeIndex::new(584)..=NodeIndex::new(584));
+
+        let range = Tree::<usize, TREE_16>::layers_ranges();
+        assert_eq!(range[0], NodeIndex::new(0)..=NodeIndex::new(4095));
+        assert_eq!(range[1], NodeIndex::new(4096)..=NodeIndex::new(4607));
+        assert_eq!(range[2], NodeIndex::new(4608)..=NodeIndex::new(4671));
+        assert_eq!(range[3], NodeIndex::new(4672)..=NodeIndex::new(4679));
+        assert_eq!(range[4], NodeIndex::new(4680)..=NodeIndex::new(4680));
+
+        // I believe it works for other ranges too. Have faith my young padawan.
     }
 }

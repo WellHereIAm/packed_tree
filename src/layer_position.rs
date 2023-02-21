@@ -1,7 +1,7 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 
-use crate::{NodeIndex, NodePosition, TreeInterface};
+use crate::{absolute_position::Depth, NodeIndex, NodePosition, TreeInterface};
 
 /// Index of [`Node`](crate::Node) in specific layer.
 ///
@@ -9,7 +9,6 @@ use crate::{NodeIndex, NodePosition, TreeInterface};
 ///
 /// This structure always expects to have valid data inside
 /// and in debug panics if that is not true.
-#[derive(Debug)]
 pub struct LayerIndex<T> {
     /// In-layer index.
     index: usize,
@@ -29,6 +28,19 @@ impl<T> Clone for LayerIndex<T> {
             depth: self.depth,
             boo: PhantomData,
         }
+    }
+}
+
+impl<T> Debug for LayerIndex<T>
+where
+    T: TreeInterface,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LayerIndex")
+            .field("index", &self.index)
+            .field("depth", &self.depth)
+            .field("Tree::<{}>", &T::BIGGEST_ROW_SIZE)
+            .finish()
     }
 }
 
@@ -81,7 +93,7 @@ where
     T: TreeInterface,
 {
     fn from(value: LayerPosition<T>) -> Self {
-        let row_size = T::row_size(value.depth);
+        let row_size = T::row_size(Depth::new(value.depth));
         let index = value.x + (value.y * row_size) + (value.z * row_size * row_size);
         Self::new(index, value.depth)
     }
@@ -131,7 +143,6 @@ where
 ///
 /// Compared to [`NodePosition`] this takes into account row size of specific layer,
 /// i.e. deeper the layer, the less nodes are in it and the smaller the position is.
-#[derive(Debug)]
 pub struct LayerPosition<T> {
     /// Amount of nodes from an tree origin on `x` asix in layer.
     pub x: usize,
@@ -166,6 +177,21 @@ impl<T> Copy for LayerPosition<T> {}
 impl<T> PartialEq for LayerPosition<T> {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == other.y && self.z == other.z && self.depth == other.depth
+    }
+}
+
+impl<T> Debug for LayerPosition<T>
+where
+    T: TreeInterface,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LayerPosition")
+            .field("x", &self.x)
+            .field("y", &self.y)
+            .field("z", &self.z)
+            .field("depth", &self.depth)
+            .field("Tree::<{}>", &T::BIGGEST_ROW_SIZE)
+            .finish()
     }
 }
 
@@ -208,7 +234,7 @@ where
     T: TreeInterface,
 {
     fn from(value: NodePosition<T>) -> Self {
-        let row_size = T::row_size(value.depth);
+        let row_size = T::row_size(value.depth.try_into().unwrap());
         let divisor = T::BIGGEST_ROW_SIZE / row_size;
         let x = value.x / divisor;
         let y = value.y / divisor;
@@ -223,7 +249,7 @@ where
     T: TreeInterface,
 {
     fn from(value: LayerIndex<T>) -> Self {
-        let row_size = T::row_size(value.depth);
+        let row_size = T::row_size(value.depth.try_into().unwrap());
 
         let z = value.index / (row_size * row_size);
         let index = value.index - (z * row_size * row_size);
@@ -255,9 +281,13 @@ where
     /// Returns `true` if `x`, `y` and `z` are less than row size of specific layer
     /// and `depth` is less or equal to [MAX_DEPTH_INDEX](TreeParameters::MAX_DEPTH_INDEX).
     pub fn is_valid_position(x: usize, y: usize, z: usize, depth: usize) -> bool {
-        let row_size = T::row_size(depth);
+        if depth > T::MAX_DEPTH_INDEX {
+            return false;
+        }
 
-        x < row_size && y < row_size && z < row_size && depth <= T::MAX_DEPTH_INDEX
+        let row_size = T::row_size(depth.try_into().unwrap());
+
+        x < row_size && y < row_size && z < row_size
     }
 
     /// Returns `true` if call to [LayerPosition::is_valid_position] on inner values
@@ -283,7 +313,7 @@ where
         if self.depth == T::MAX_DEPTH_INDEX {
             return Some(Self::new(0, 0, 0, self.depth));
         }
-        let row_size = T::row_size(self.depth);
+        let row_size = T::row_size(self.depth.try_into().unwrap());
 
         self.x /= row_size;
         self.y /= row_size;

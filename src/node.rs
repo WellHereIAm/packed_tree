@@ -20,13 +20,19 @@ pub struct NodesRaw<T, U> {
     boo: PhantomData<U>,
 }
 
-/// Length of `vec` needs to same as [tree size](TreeParameters::SIZE).
+/// Constructs [`NodesRaw`] from [`Vec`] of [`nodes`](Node),
+/// if length of `nodes` is greater than associated [`tree`](crate::Tree),
+/// then `nodes` beyond tree size are trimmed.
 impl<T, U> From<Vec<Node<T>>> for NodesRaw<T, U>
 where
     U: TreeInterface,
+    T: Clone,
 {
-    fn from(value: Vec<Node<T>>) -> Self {
-        debug_assert!(value.len() <= U::SIZE);
+    fn from(mut value: Vec<Node<T>>) -> Self {
+        if value.len() > U::SIZE {
+            value = value[0..U::SIZE].to_vec();
+        }
+
         Self {
             nodes: value,
             boo: PhantomData,
