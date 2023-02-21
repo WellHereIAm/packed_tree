@@ -1,4 +1,10 @@
-use std::{fmt::Debug, ops::Range};
+use std::{
+    fmt::Debug,
+    ops::{
+        Bound, Index, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
+        RangeToInclusive,
+    },
+};
 
 use crate::{LayerPosition, Node, NodeIndex, NodePosition, NodesRaw};
 
@@ -201,6 +207,200 @@ impl<T> TreeInterface for Tree<T, TREE_1> {
     }
 }
 
+impl<T, const SIZE: usize> From<&[Node<T>]> for Tree<T, SIZE>
+where
+    T: Debug,
+    Node<T>: Clone,
+{
+    fn from(value: &[Node<T>]) -> Self {
+        Self {
+            stored: value.to_vec().try_into().unwrap(),
+        }
+    }
+}
+
+/// Implements [`From`] for pair of [`Tree`] types
+/// where first has biggest row twice as big as second.
+macro_rules! impl_From_for_Tree {
+    ($m: expr, $n: expr) => {
+        impl<T> From<Tree<T, $m>> for Tree<T, $n>
+        where
+            T: Debug,
+            Node<T>: Clone,
+        {
+            fn from(value: Tree<T, $m>) -> Self {
+                let start = Tree::<T, $m>::layer_size(0);
+                let end = Tree::<T, $m>::SIZE;
+                Tree {
+                    stored: value.stored[start..end].to_vec().try_into().unwrap(),
+                }
+            }
+        }
+    };
+}
+
+impl_From_for_Tree!(TREE_128, TREE_64);
+impl_From_for_Tree!(TREE_64, TREE_32);
+impl_From_for_Tree!(TREE_32, TREE_16);
+impl_From_for_Tree!(TREE_16, TREE_8);
+impl_From_for_Tree!(TREE_8, TREE_4);
+impl_From_for_Tree!(TREE_4, TREE_2);
+impl_From_for_Tree!(TREE_2, TREE_1);
+
+impl<T, const SIZE: usize> Index<NodeIndex<Self>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = Node<T>;
+
+    fn index(&self, index: NodeIndex<Self>) -> &Self::Output {
+        self.get(index)
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<NodeIndex<Self>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, index: NodeIndex<Self>) -> &mut Self::Output {
+        self.get_mut(index)
+    }
+}
+
+impl<T, const SIZE: usize> Index<Range<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, index: Range<NodeIndex<Self>>) -> &Self::Output {
+        &self.stored[index.start.raw()..index.end.raw()]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<Range<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, index: Range<NodeIndex<Self>>) -> &mut Self::Output {
+        &mut self.stored[index.start.raw()..index.end.raw()]
+    }
+}
+
+impl<T, const SIZE: usize> Index<RangeFrom<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, index: RangeFrom<NodeIndex<Self>>) -> &Self::Output {
+        &self.stored[index.start.raw()..]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<RangeFrom<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, index: RangeFrom<NodeIndex<Self>>) -> &mut Self::Output {
+        &mut self.stored[index.start.raw()..]
+    }
+}
+
+impl<T, const SIZE: usize> Index<RangeFull> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, _: RangeFull) -> &Self::Output {
+        &self.stored[..]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<RangeFull> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, _: RangeFull) -> &mut Self::Output {
+        &mut self.stored[..]
+    }
+}
+
+impl<T, const SIZE: usize> Index<RangeInclusive<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, index: RangeInclusive<NodeIndex<Self>>) -> &Self::Output {
+        &self.stored[index.start().raw()..=index.end().raw()]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<RangeInclusive<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, index: RangeInclusive<NodeIndex<Self>>) -> &mut Self::Output {
+        &mut self.stored[index.start().raw()..=index.end().raw()]
+    }
+}
+
+impl<T, const SIZE: usize> Index<RangeTo<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, index: RangeTo<NodeIndex<Self>>) -> &Self::Output {
+        &self.stored[..index.end.raw()]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<RangeTo<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, index: RangeTo<NodeIndex<Self>>) -> &mut Self::Output {
+        &mut self.stored[..index.end.raw()]
+    }
+}
+
+impl<T, const SIZE: usize> Index<RangeToInclusive<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    type Output = [Node<T>];
+
+    fn index(&self, index: RangeToInclusive<NodeIndex<Self>>) -> &Self::Output {
+        &self.stored[..=index.end.raw()]
+    }
+}
+
+impl<T, const SIZE: usize> IndexMut<RangeToInclusive<NodeIndex<Self>>> for Tree<T, SIZE>
+where
+    Self: TreeInterface,
+    T: Debug,
+{
+    fn index_mut(&mut self, index: RangeToInclusive<NodeIndex<Self>>) -> &mut Self::Output {
+        &mut self.stored[..=index.end.raw()]
+    }
+}
+
 impl<T, const SIZE: usize> Tree<T, SIZE>
 where
     Self: TreeInterface,
@@ -387,6 +587,34 @@ pub trait TreeInterface {
         }
         sizes
     }
+
+    /// Returns size of layer in specified `depth`.
+    fn layer_size(depth: usize) -> usize {
+        Self::layers_sizes()[depth]
+    }
+
+    /// Returns all ranges of indexes belogning to each layer of associated [`Tree`].
+    fn layers_ranges() -> Vec<Range<NodeIndex<Self>>>
+    where
+        Self: Sized,
+    {
+        Self::layers_sizes()
+            .into_iter()
+            .scan(0, |state: &mut usize, element| {
+                let previous: usize = (*state).saturating_sub(1);
+                *state += element;
+                Some(NodeIndex::new(previous)..NodeIndex::new((*state).saturating_sub(1)))
+            })
+            .collect::<Vec<Range<NodeIndex<Self>>>>()
+    }
+
+    /// Returns a range of indexes belonging to a layer in specified `depth`.
+    fn layer_range(depth: usize) -> Range<NodeIndex<Self>>
+    where
+        Self: Sized,
+    {
+        Self::layers_ranges()[depth].clone()
+    }
 }
 
 /// Calculates depth of tree from `row_size`.
@@ -403,7 +631,12 @@ const fn tree_depth(row_size: usize) -> usize {
 #[cfg(test)]
 mod tree_tests {
 
-    use crate::{Node, NodeIndex, NodesRaw};
+    use crate::{
+        implemented_tree_sizes::{
+            TREE_1, TREE_128, TREE_16, TREE_2, TREE_32, TREE_4, TREE_64, TREE_8,
+        },
+        Node, NodeIndex, NodesRaw,
+    };
 
     use super::Tree;
 
@@ -437,6 +670,98 @@ mod tree_tests {
             .unwrap_err();
     }
 
+    #[test]
+    fn from_bigger() {
+        let tree = Tree::<(), TREE_128>::new();
+        assert_eq!(Tree::<(), TREE_64>::new(), tree.into());
+
+        let tree = Tree::<(), TREE_64>::new();
+        assert_eq!(Tree::<(), TREE_32>::new(), tree.into());
+
+        let tree = Tree::<(), TREE_32>::new();
+        assert_eq!(Tree::<(), TREE_16>::new(), tree.into());
+
+        let tree = Tree::<(), TREE_16>::new();
+        assert_eq!(Tree::<(), TREE_8>::new(), tree.into());
+
+        let tree = Tree::<(), TREE_8>::new();
+        assert_eq!(Tree::<(), TREE_4>::new(), tree.into());
+
+        let tree = Tree::<(), TREE_4>::new();
+        assert_eq!(Tree::<(), TREE_2>::new(), tree.into());
+
+        let tree = Tree::<(), TREE_2>::new();
+        assert_eq!(Tree::<(), TREE_1>::new(), tree.into());
+
+        // Always sets first node of next layer, one after that and last node
+        // to filled and then checks if smaller tree is correctly created.
+
+        let mut tree = Tree::<(), TREE_128>::new();
+        tree.set(NodeIndex::new(2097152), Node::Filled(()));
+        tree.set(NodeIndex::new(2097153), Node::Filled(()));
+        tree.set(NodeIndex::new(2396744), Node::Filled(()));
+        let mut test = Tree::<(), TREE_64>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        test.set(NodeIndex::new(1), Node::Filled(()));
+        test.set(NodeIndex::new(299592), Node::Filled(()));
+        assert_eq!(test, tree.into());
+
+        let mut tree = Tree::<(), TREE_64>::new();
+        tree.set(NodeIndex::new(262144), Node::Filled(()));
+        tree.set(NodeIndex::new(262145), Node::Filled(()));
+        tree.set(NodeIndex::new(299592), Node::Filled(()));
+        let mut test = Tree::<(), TREE_32>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        test.set(NodeIndex::new(1), Node::Filled(()));
+        test.set(NodeIndex::new(37448), Node::Filled(()));
+        assert_eq!(test, tree.into());
+
+        let mut tree = Tree::<(), TREE_32>::new();
+        tree.set(NodeIndex::new(32768), Node::Filled(()));
+        tree.set(NodeIndex::new(32769), Node::Filled(()));
+        tree.set(NodeIndex::new(37448), Node::Filled(()));
+        let mut test = Tree::<(), TREE_16>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        test.set(NodeIndex::new(1), Node::Filled(()));
+        test.set(NodeIndex::new(4680), Node::Filled(()));
+        assert_eq!(test, tree.into());
+
+        let mut tree = Tree::<(), TREE_16>::new();
+        tree.set(NodeIndex::new(4096), Node::Filled(()));
+        tree.set(NodeIndex::new(4097), Node::Filled(()));
+        tree.set(NodeIndex::new(4680), Node::Filled(()));
+        let mut test = Tree::<(), TREE_8>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        test.set(NodeIndex::new(1), Node::Filled(()));
+        test.set(NodeIndex::new(584), Node::Filled(()));
+        assert_eq!(test, tree.into());
+
+        let mut tree = Tree::<(), TREE_8>::new();
+        tree.set(NodeIndex::new(512), Node::Filled(()));
+        tree.set(NodeIndex::new(513), Node::Filled(()));
+        tree.set(NodeIndex::new(584), Node::Filled(()));
+        let mut test = Tree::<(), TREE_4>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        test.set(NodeIndex::new(1), Node::Filled(()));
+        test.set(NodeIndex::new(72), Node::Filled(()));
+        assert_eq!(test, tree.into());
+
+        let mut tree = Tree::<(), TREE_4>::new();
+        tree.set(NodeIndex::new(64), Node::Filled(()));
+        tree.set(NodeIndex::new(65), Node::Filled(()));
+        tree.set(NodeIndex::new(72), Node::Filled(()));
+        let mut test = Tree::<(), TREE_2>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        test.set(NodeIndex::new(1), Node::Filled(()));
+        test.set(NodeIndex::new(8), Node::Filled(()));
+        assert_eq!(test, tree.into());
+
+        let mut tree = Tree::<(), TREE_2>::new();
+        tree.set(NodeIndex::new(8), Node::Filled(()));
+        let mut test = Tree::<(), TREE_1>::new();
+        test.set(NodeIndex::new(0), Node::Filled(()));
+        assert_eq!(test, tree.into());
+    }
     #[test]
     fn children() {
         let nodes = nodes_raw(73);
@@ -586,4 +911,24 @@ mod tree_interface_tests {
         },
         NodeIndex, Tree, TreeInterface,
     };
+
+    #[test]
+    fn layer_ranges() {
+        println!("{:?}", Tree::<usize, TREE_128>::layers_sizes());
+        for range in Tree::<usize, TREE_128>::layers_ranges() {
+            println!("{}..{}", range.start, range.end);
+        }
+        // panic!();
+
+        let mut vec = [
+            NodeIndex::<Tree<(), TREE_4>>::new(1),
+            NodeIndex::<Tree<(), TREE_4>>::new(1),
+            NodeIndex::<Tree<(), TREE_4>>::new(1),
+            NodeIndex::<Tree<(), TREE_4>>::new(1),
+        ];
+        let default = [NodeIndex::<Tree<(), TREE_4>>::new(0); 2];
+        vec[0..2].clone_from_slice(&default);
+        println!("{vec:?}");
+        panic!()
+    }
 }

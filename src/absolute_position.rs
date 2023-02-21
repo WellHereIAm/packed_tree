@@ -1,6 +1,6 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
-use std::ops::{Add, Index, IndexMut, Sub};
+use std::ops::{Add, Index, IndexMut, Range, Sub};
 
 use crate::{LayerIndex, LayerPosition, TreeInterface};
 

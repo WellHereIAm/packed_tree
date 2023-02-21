@@ -7,6 +7,9 @@ mod layer_position;
 mod node;
 mod tree;
 
+mod direction;
+mod layer_iter;
+
 pub use absolute_position::{NodeIndex, NodePosition};
 pub use layer_position::{LayerIndex, LayerPosition};
 pub use node::{Node, NodesRaw};
